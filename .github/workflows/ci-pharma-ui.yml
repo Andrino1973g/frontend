@@ -6,9 +6,13 @@ name: CI/CD — pharma-ui
 
 on:
   push:
-    branches: [develop, 'release/**']
+    branches:
+      - develop
+      - 'release/**'
   pull_request:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
   workflow_dispatch:
     inputs:
       ref:
@@ -28,10 +32,12 @@ env:
   GITOPS_REPO: ${{ vars.GITOPS_REPO }}
 
 jobs:
+
   # ── 1. Lint ───────────────────────────────────────────────────────────────
   lint:
     name: Lint
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v5
 
@@ -47,11 +53,13 @@ jobs:
       - name: ESLint
         run: ./node_modules/.bin/eslint src/ --ext .js,.jsx
 
+
   # ── 2. Unit Tests with Coverage ──────────────────────────────────────────
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: lint
+
     steps:
       - uses: actions/checkout@v5
 
@@ -76,11 +84,13 @@ jobs:
           path: coverage/
           retention-days: 3
 
-  # ── 3. Code Quality & Security (SonarCloud + npm audit) ──────────────────
+
+  # ── 3. Code Quality & Security ───────────────────────────────────────────
   sonar:
     name: Code Quality & Security
     runs-on: ubuntu-latest
     needs: test
+
     steps:
       - uses: actions/checkout@v5
         with:
@@ -109,11 +119,15 @@ jobs:
         run: npm audit --audit-level=high
         continue-on-error: true
 
+
   # ── 4. Build React App ───────────────────────────────────────────────────
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, sonar]
+    needs:
+      - test
+      - sonar
+
     steps:
       - uses: actions/checkout@v5
 
@@ -135,41 +149,47 @@ jobs:
           name: build-artifact
           path: build/
 
-  # ── 5. Docker Build, Trivy Scan & Push to ECR ────────────────────────────
+
+  # ── 5. Docker Build, Trivy Scan & Push to ECR ─────────────────────────────
   docker-build-push:
     name: Docker Build & Push
     runs-on: ubuntu-latest
     needs: build
+
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
     outputs:
       image_tag: ${{ steps.tag.outputs.image_tag }}
+
     steps:
       - uses: actions/checkout@v5
 
       - name: Set short image tag
         id: tag
-        run: echo "image_tag=sha-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        run: echo "image_tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-       - name: Debug OIDC claims
-  shell: bash
-  run: |
-    echo "Requesting GitHub OIDC token..."
+      # ── Temporary OIDC debugging ─────────────────────────────────────────
+      - name: Debug OIDC claims
+        shell: bash
+        run: |
+          echo "Requesting GitHub OIDC token..."
 
-    RESPONSE=$(curl -s \
-      -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-      "$ACTIONS_ID_TOKEN_REQUEST_URL")
+          RESPONSE=$(curl -s \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL")
 
-    TOKEN=$(echo "$RESPONSE" | jq -r '.value')
+          TOKEN=$(echo "$RESPONSE" | jq -r '.value')
 
-    echo "$TOKEN" | cut -d '.' -f2 | base64 -d 2>/dev/null | jq '{
-      iss,
-      aud,
-      sub,
-      repository,
-      ref,
-      event_name
-    }'
+          echo "$TOKEN" | cut -d '.' -f2 | base64 -d 2>/dev/null | jq '{
+            iss,
+            aud,
+            sub,
+            repository,
+            ref,
+            event_name
+          }'
 
+      # ── AWS OIDC Authentication ──────────────────────────────────────────
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -200,12 +220,14 @@ jobs:
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.image_tag }}
           docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
-  # ── 6. Deploy — DEV (direct push to gitops) ──────────────────────────────
+
+  # ── 6. Deploy — DEV ──────────────────────────────────────────────────────
   deploy-dev:
     name: Deploy — DEV
     needs: docker-build-push
     runs-on: ubuntu-latest
     environment: dev
+
     steps:
       - uses: actions/checkout@v5
 
@@ -225,13 +247,21 @@ jobs:
       - name: Update image tag — DEV
         env:
           IMAGE_TAG: ${{ needs.docker-build-push.outputs.image_tag }}
+
         run: |
           yq e ".image.tag = \"${IMAGE_TAG}\"" -i \
             "_gitops/envs/dev/values-pharma-ui.yaml"
+
           cd _gitops
-          git config user.name  "github-actions[bot]"
+
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add .
-          git diff --staged --quiet && echo "Already up to date" && exit 0
+
+          git diff --staged --quiet && \
+            echo "Already up to date" && \
+            exit 0
+
           git commit -m "ci(dev): update pharma-ui → ${IMAGE_TAG}"
           git push
