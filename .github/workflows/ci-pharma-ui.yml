@@ -9,10 +9,12 @@ on:
     branches:
       - develop
       - 'release/**'
+
   pull_request:
     branches:
       - main
       - develop
+
   workflow_dispatch:
     inputs:
       ref:
@@ -168,15 +170,15 @@ jobs:
         id: tag
         run: echo "image_tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      # ── Temporary OIDC debugging ─────────────────────────────────────────
+      # ── Temporary OIDC debugging ──────────────────────────────────────────
       - name: Debug OIDC claims
         shell: bash
         run: |
-          echo "Requesting GitHub OIDC token..."
+          echo "Requesting GitHub OIDC token for AWS..."
 
           RESPONSE=$(curl -s \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL")
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
 
           TOKEN=$(echo "$RESPONSE" | jq -r '.value')
 
@@ -263,5 +265,7 @@ jobs:
             echo "Already up to date" && \
             exit 0
 
+          git commit -m "ci(dev): update pharma-ui → ${IMAGE_TAG}"
+          git push
           git commit -m "ci(dev): update pharma-ui → ${IMAGE_TAG}"
           git push
