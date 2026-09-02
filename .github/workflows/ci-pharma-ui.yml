@@ -169,27 +169,7 @@ jobs:
       - name: Set short image tag
         id: tag
         run: echo "image_tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-
-      # ── Temporary OIDC debugging ──────────────────────────────────────────
-      - name: Debug OIDC claims
-        shell: bash
-        run: |
-          echo "Requesting GitHub OIDC token for AWS..."
-
-          RESPONSE=$(curl -s \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
-
-          TOKEN=$(echo "$RESPONSE" | jq -r '.value')
-
-          echo "$TOKEN" | cut -d '.' -f2 | base64 -d 2>/dev/null | jq '{
-            iss,
-            aud,
-            sub,
-            repository,
-            ref,
-            event_name
-          }'
+        
 
       # ── AWS OIDC Authentication ──────────────────────────────────────────
       - name: Configure AWS credentials (OIDC)
